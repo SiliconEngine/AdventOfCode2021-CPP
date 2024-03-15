@@ -6,7 +6,11 @@
  *
  * @author	Tim Behrendsen
  *
- * This was a decompiling problem, so there is no program solution.
+ * This was a decompiling problem, so there is no algorithmic solution. However,
+ * this solution implements the rules to generate the solutions based on the
+ * constants in the instructions.
+ *
+ * I left in the intermediate work to understand what the instructions were doing.
  *
  *        inp w                 w = [inp]
  *        mul x 0               //x = 0         [will be set again later]
@@ -262,12 +266,15 @@ int algorithm() {
 
     return z;
 }
-void part1()
-{
-    string s;
-    ifstream in;
 
-    int inp_data[] = { 1,3,5,7,9,2,4,6,8,9,9,9,9,9 };
+struct Instruction {
+    string op;
+    string param1;
+    string param2;
+};
+
+void execProg(int* inp_data, vector<Instruction> program)
+{
     int inp_idx = 0;
     map<string, int> vars = {
         { "w", 0 },
@@ -276,32 +283,168 @@ void part1()
         { "z", 0 },
     };
 
-    in.open("code.txt");
-    while (getline(in, s)) {
-        cout << s << endl;
-        vector<string> v = str_split(s, " ");
-        string op = v[0];
-        string param1 = v[1];
-        cout << "OP: " << op << " P:" << param1 << endl;
+    for (Instruction &p : program) {
+        string& op = p.op;
+        string& param1 = p.param1;
+        string& param2 = p.param2;
+
+        //cout << "OP: " << op << ", P1:" << param1 << ", P2: " << param2 << endl;
 
         if (op == "inp") {
             vars[param1] = inp_data[inp_idx++];
 
-        } else if (op == "add") {
-            vars[param1] = vars[param1] + get_param(vars, v[2]);
-        } else if (op == "mul") {
-            vars[param1] = vars[param1] * get_param(vars, v[2]);
-        } else if (op == "div") {
-            vars[param1] = vars[param1] / get_param(vars, v[2]);
-        } else if (op == "mod") {
-            vars[param1] = vars[param1] % get_param(vars, v[2]);
-        } else if (op == "eql") {
-            vars[param1] = vars[param1] == get_param(vars, v[2]);
         }
-	cout << vars << endl;
+        else if (op == "add") {
+            vars[param1] = vars[param1] + get_param(vars, param2);
+        }
+        else if (op == "mul") {
+            vars[param1] = vars[param1] * get_param(vars, param2);
+        }
+        else if (op == "div") {
+            vars[param1] = vars[param1] / get_param(vars, param2);
+        }
+        else if (op == "mod") {
+            vars[param1] = vars[param1] % get_param(vars, param2);
+        }
+        else if (op == "eql") {
+            vars[param1] = vars[param1] == get_param(vars, param2);
+        }
+        //cout << vars << endl;
+    }
+}
+
+void part1()
+{
+    string s;
+    ifstream in;
+
+    int inp_data[] = { 1,3,5,7,9,2,4,6,8,9,9,9,9,9 };
+    in.open("code.txt");
+    vector<Instruction> program;
+    while (getline(in, s)) {
+        //cout << s << endl;
+        vector<string> v = str_split(s, " ");
+        string op = v[0];
+        string param1 = v[1];
+        string param2 = "";
+        if (v.size() > 2) {
+            param2 = v[2];
+        }
+        //cout << "OP: " << op << ", P1:" << param1 << ", P2: " << param2 << endl;
+        program.push_back(Instruction{ op, param1, param2 });
     }
 
+    execProg(inp_data, program);
+
     cout << algorithm() << endl;
+
+    /**
+     * Generate solutions based on the decoded rules.
+     */
+
+    // First extract the key constants from the instructions
+    int vary1[14], vary2[14];
+    int vidx = 0;
+    for (int i = 5; i < program.size(); i += 18) {
+        vary1[vidx] = stoi(program[i].param2);
+        vary2[vidx] = stoi(program[i+10].param2);
+        ++vidx;
+    }
+
+    cout << "vary1:";
+    for (int v : vary1) {
+        cout << " " << v;
+    }
+    cout << endl;
+
+    cout << "vary2:";
+    for (int v : vary2) {
+        cout << " " << v;
+    }
+    cout << endl;
+
+    // The instructions simulates a stack machine. Show what we're about to do.
+    for (int step = 0; step < 14; ++step) {
+        if (vary1[step] >= 10) {
+            cout << "PUSH : value[" << step << "] + " << vary2[step] << endl;
+        } else {
+            cout << "POP  : value[" << step << "] must be pop() + " << vary1[step] << endl;
+        }
+    }
+
+    struct StackItem {
+        int dignum;
+        int offset;
+    };
+
+    struct Rule {
+        int dignum_left;
+        int dignum_right;
+        int offset;
+    };
+
+    // Run the stack machine and generate rules of the form:
+    //     value[digit number] = value[digit number] + [offset]
+    stack<StackItem> stack;
+    vector<Rule> rules;
+    for (int dignum = 0; dignum < 14; ++dignum) {
+        if (vary1[dignum] >= 10) {
+            stack.push(StackItem{ dignum, vary2[dignum] });
+        }
+        else {
+            StackItem r = stack.top();
+            stack.pop();
+            // Example: value[3] = value[2] + 5
+            cout << "value[" << dignum << "] = value[" << r.dignum << "] + " << (r.offset + vary1[dignum]) << " (" << r.offset << " + " << vary1[dignum] << ")" << endl;
+            rules.push_back(Rule{ dignum, r.dignum, r.offset + vary1[dignum] });
+        }
+    }
+
+    auto makeChar = [](int i) -> char { return i + '0'; };
+
+    // Generate largest number
+    string largest(14, '.');
+    for (auto &r : rules) {
+        if (r.offset >= 0) {
+            // Example: value[3] = value[2] + 5
+            // Therefore, best is dig 2 = [4] and 3 = [9]
+
+            largest[r.dignum_left] = makeChar(9);
+            largest[r.dignum_right] = makeChar(9 - r.offset);
+	} else {
+            // Example: value[3] = value[2] - 5
+            // Therefore, best is dig 2 = [9] and 3 = [4]
+
+            largest[r.dignum_left] = makeChar(9 + r.offset);
+            largest[r.dignum_right] = makeChar(9);
+        }
+    }
+    cout << "LARGEST: " << largest << endl;
+
+    // Generate smallest number
+    string smallest(14, '.');
+    for (auto &r : rules) {
+        if (r.offset >= 0) {
+            // Example: value[3] = value[2] + 5
+            // Therefore, best is dig 2 = [1] and 3 = [6]
+            //
+            // Example: value[3] = value[2] + 9
+            // This would be an issue, but looks like they avoid this case
+
+            smallest[r.dignum_left] = makeChar(1 + r.offset);
+            smallest[r.dignum_right] = makeChar(1);
+	} else {
+            // Example: value[3] = value[2] - 5
+            // Therefore, best is dig 2 = [6] and 3 = [1]
+            //
+            // Example: value[10] = value[9] - 1
+            // Therefore, best is dig 9 = [2] and 10 = [1]
+
+            smallest[r.dignum_left] = makeChar(1);
+            smallest[r.dignum_right] = makeChar(1 - r.offset);
+        }
+    }
+    cout << "SMALLEST: " << smallest << endl;
 }
 
 int main()
